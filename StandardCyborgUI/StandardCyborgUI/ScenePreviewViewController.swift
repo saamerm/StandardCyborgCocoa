@@ -14,6 +14,7 @@ import UIKit
     @objc public private(set) var scScene: SCScene
     @objc private var meshTexturing: SCMeshTexturing?
     @objc private var landmarks: Set<SCLandmark3D>?
+    @objc public var mesh: SCMesh?
     
     /** A snapshot of the scene as-rendered, which becomes available
         as soon as the view controller's view appears. If meshing is enabled this
@@ -39,7 +40,7 @@ import UIKit
      after scanning has completed in the delegate callback `ScanningViewController(_ controller:didScan pointCloud)`
      */
     @objc public init(pointCloud: SCPointCloud, meshTexturing: SCMeshTexturing?, landmarks: Set<SCLandmark3D>?) {
-        self.scScene = SCScene(pointCloud: pointCloud, mesh: nil)
+        self.scScene = SCScene(pointCloud: pointCloud, mesh: nil, landmarks: landmarks)
         self.meshTexturing = meshTexturing
         self.landmarks = landmarks
         
@@ -52,7 +53,7 @@ import UIKit
     }
 
     required init?(coder: NSCoder) {
-        self.scScene = SCScene(pointCloud: nil, mesh: nil)
+        self.scScene = SCScene(pointCloud: nil, mesh: nil, landmarks: nil)
         super.init(coder: coder)
     }
         
@@ -127,7 +128,10 @@ import UIKit
         leftButton.isHidden = leftButton.title(for: UIControl.State.normal)?.isEmpty ?? true
         rightButton.isHidden = rightButton.title(for: UIControl.State.normal)?.isEmpty ?? true
         
-        _constructScene(withSCScene: scScene)
+        _clearScene()
+        _appendToScene(withSCScene: scScene)
+        _meshAndAppendToScene(withSCScene: scScene)
+        
     }
         
     
@@ -180,24 +184,30 @@ import UIKit
     private var _containerNode = SCNNode()
     private var _meshingHelper: SCMeshingHelper?
     
-    private func _constructScene(withSCScene scScene: SCScene) {
-        _containerNode.childNodes.forEach { $0.removeFromParentNode() }
+    private func _meshAndAppendToScene(withSCScene scScene: SCScene) {
         
-        _containerNode.addChildNode(scScene.rootNode)
-        
-        if let pointCloud = scScene.pointCloud, let meshTexturing = meshTexturing, _containerNode.childNode(withName: "SCMesh", recursively: true) == nil {
+        if let pointCloud = scScene.pointCloud, let meshTexturing = meshTexturing {
             _processMeshTexturingIntoMesh(withPointCloud: pointCloud, meshTexturing: meshTexturing) { result in
                 switch result {
                 case .success(let mesh):
-                    self.scScene = SCScene(pointCloud: pointCloud, mesh: mesh)
-                    self._constructScene(withSCScene: self.scScene)
+                    self.mesh = mesh
+                    self.scScene = SCScene(pointCloud: nil, mesh: mesh, landmarks: nil)
+                    self._appendToScene(withSCScene: self.scScene)
                     
                 case .failure(let error):
                     print("Error processing mesh: \(String(describing: error.localizedDescription))")
                 }
             }
         }
-        
+    }
+    
+    private func _clearScene() {
+        _containerNode.childNodes.forEach { $0.removeFromParentNode() }
+    }
+    
+    private func _appendToScene(withSCScene scScene: SCScene) {
+        _containerNode.addChildNode(scScene.rootNode)
+
         // This is a bit of a hack. There doesn't appear to be a good way to determine when a sceneView has finished
         // rendering nodes. Delaying half a second before grabbing a snapshot seems to work.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
